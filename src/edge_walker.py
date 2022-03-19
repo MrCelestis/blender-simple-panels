@@ -143,27 +143,3 @@ class EdgeWalker:
 #    edge_walker.log()
 #    if edge_walker.current_edge != None:
 #        edge_walker.current_edge.select = True
-
-#useful reference code fior future use:
-#bm.select_flush_mode()
-#bpy.ops.mesh.bevel(
-#    offset_type   = 'OFFSET',
-#    offset        = 0.01,
-#    segments      = 1,
-#    profile       = 0.5,
-#    clamp_overlap = True,
-#    loop_slide    = False,
-#    material      = -1
-#)
-#bmesh.ops.inset_region(
-#    bm,
-#    faces = sel_faces,
-#    faces_exclude = sel_faces,
-#    use_boundary = False,
-#    use_even_offset = True,
-#    use_interpolate = False,
-#    use_relative_offset = False,
-#    use_edge_rail = False,
-#    thickness = 0.03,
-#    depth = -0.05,
-#    use_outset = False)
