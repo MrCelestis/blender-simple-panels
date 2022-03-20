@@ -51,6 +51,8 @@ class EdgeWalker:
         #print('walker start at v=', start_vert.index)
         self.current_edge = start_edge
         self.current_vert = start_vert
+        self.current_path = list()
+        self.current_path_corners = list()
         self.__mark_current_traversed()
         #self.traversed_verts.add(self.current_edge.other_vert(self.current_vert))
         
@@ -64,6 +66,7 @@ class EdgeWalker:
     def __mark_current_traversed(self):
         if self.current_vert != None:
             self.traversed_verts.add(self.current_vert)
+            self.current_path.append(self.current_vert)
         if self.current_edge != None:
             for v in self.current_edge.verts:
                 self.__add_edge_count(v)
@@ -78,6 +81,7 @@ class EdgeWalker:
 
     def turn(self):
         #print('turn')
+        self.current_path_corners.append(self.current_vert)
         next_edge = random_next_edge_after_turn(self.current_edge, self.current_vert)
         self.current_vert = self.current_edge.other_vert(self.current_vert)
         self.current_edge = next_edge
@@ -95,6 +99,20 @@ class EdgeWalker:
     def ends_at_traversed_vertex(self):
         other = self.current_edge.other_vert(self.current_vert)
         return other in self.traversed_verts
+
+    # If current path ended on itself, returns list of vertices in the "loop", None otherwise
+    def current_path_loop_until_current_vertex(self, corners_only):
+        if self.is_valid() == False:
+            return None
+        segment = list()
+        if self.ends_at_traversed_vertex():
+            endpoint = self.current_edge.other_vert(self.current_vert)
+            for v in reversed(self.current_path):
+                if v == endpoint:
+                    return segment
+                if corners_only == False or v in self.current_path_corners:
+                    segment.append(v)
+        return None
     
     def first_open_vert(self):
         #print('edge_count_by_vert=', self.edge_count_by_vert)

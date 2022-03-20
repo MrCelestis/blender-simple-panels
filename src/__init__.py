@@ -99,31 +99,52 @@ class SimplePanels(bpy.types.Operator):
                     walker.forward()
                 else:
                     walker.turn()
-            # Try to pick starting vertex and edge for next walk.
-            # Open edges (random edge from vertex with only 1 traversed edge) are always processed.
-            # The rest depends on random with the following priority:
-            # - vertices with 2 connected traversed edges at corners - TODO
-            # - vertices with 2 connected traversed edges
-            # - non-traversed vertices
-            next_iteration_vert = walker.first_open_vert()
-            # try to pick a non-traversed edge starting from first_open_vert
-            next_iteration_edge = walker.random_non_traversed_edge_from_vertex(
-                next_iteration_vert)
-            if next_iteration_edge == None or next_iteration_vert == None:
-                # try random pick: vertices with 2 connected traversed edges
-                if random.random() < 0.5:
-                    next_iteration_vert = walker.random_bi_connected_vert()
-                    next_iteration_edge = walker.random_non_traversed_edge_from_vertex(
-                        next_iteration_vert)
-                elif random.random() < 0.5:
-                    next_iteration_vert = walker.random_non_traversed_vert()
-                    next_iteration_edge = walker.random_non_traversed_edge_from_vertex(
-                        next_iteration_vert)
+            (next_iteration_vert, next_iteration_edge) = self.__next_vert_and_edge(walker)
+            next_iteration_edge = walker.random_non_traversed_edge_from_vertex(next_iteration_vert)
             if next_iteration_edge == None or next_iteration_vert == None:
                 if random.random() < 0.1:
                     return
             # if there is a continuation, continue walk
             walker.start(next_iteration_edge, next_iteration_vert)
+
+    def __next_vert_and_edge(self, walker):
+        # Try to pick starting vertex and edge for next walk.
+        # If current path ends on itself, one of its corners is always a next path start.
+        # Open edges (random edge from vertex with only 1 traversed edge) are always processed.
+        # The rest depends on random with the following priority:
+        # - vertices with 2 connected traversed edges at corners - TODO
+        # - vertices with 2 connected traversed edges
+        # - non-traversed vertices
+        # For picked vert try to pick a non-traversed edge starting from it
+
+        # Walked back to current path. This often looks ugly and "incomplete",
+        # in such case corner verts of current path should be prioritised for next iteration
+        current_path_loop_corners = walker.current_path_loop_until_current_vertex(corners_only = True)
+        if current_path_loop_corners != None and len(current_path_loop_corners) > 0:
+            next_iteration_vert = random.choice(current_path_loop_corners)
+            next_iteration_edge = walker.random_non_traversed_edge_from_vertex(
+                next_iteration_vert)
+            if next_iteration_edge != None:
+                return (next_iteration_vert, next_iteration_edge)
+
+        next_iteration_vert = walker.first_open_vert()
+        next_iteration_edge = walker.random_non_traversed_edge_from_vertex(
+            next_iteration_vert)
+        if next_iteration_edge != None:
+            return (next_iteration_vert, next_iteration_edge)
+        # try random pick: vertices with 2 connected traversed edges
+        if random.random() < 0.5:
+            next_iteration_vert = walker.random_bi_connected_vert()
+            next_iteration_edge = walker.random_non_traversed_edge_from_vertex(
+                next_iteration_vert)
+            return (next_iteration_vert, next_iteration_edge)
+        if random.random() < 0.5:
+            next_iteration_vert = walker.random_non_traversed_vert()
+            next_iteration_edge = walker.random_non_traversed_edge_from_vertex(
+                next_iteration_vert)
+            return (next_iteration_vert, next_iteration_edge)
+        return (None, None)
+
 
     def cut_corners(self, bm, traversed_edges):
         affected_verts = set()
