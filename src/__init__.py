@@ -17,6 +17,7 @@ from . import (
 import bmesh
 import random
 import time
+from functools import reduce
 
 class SimplePanels(bpy.types.Operator):
     """Simple panel generator"""      # Use this as a tooltip for menu items and buttons.
@@ -28,21 +29,24 @@ class SimplePanels(bpy.types.Operator):
         name="Forward walk", default=0.65, min=0, max=1)
     panel_line_bevel_offset: bpy.props.FloatProperty(
         name="Line width", default=0.01, min=0)
-    #TODO: maybe replace with % of bevel width?
-    inset_thickness: bpy.props.FloatProperty(
-        name="Line extrude width", default=0)
+    inset_thickness_factor: bpy.props.FloatProperty(
+        name="Line extrude width", default=0, min=0, max=1, subtype="FACTOR")
     inset_depth: bpy.props.FloatProperty(
         name="Line depth", default=0.1)
     bevel_panel_corners: bpy.props.BoolProperty(
         name="Bevel panel corners", default=False)
     bevel_panel_corners_chance: bpy.props.FloatProperty(
         name="Bevel corner chance", default=0.75, min=0, max=1)
+    bevel_clamp_overlap: bpy.props.BoolProperty(
+        name="Bevel clamp overlap", default=False)
 
     @classmethod
     def poll(cls, context):
         return context.edit_object is not None
 
     def invoke(self, context, event):
+        self.panel_line_bevel_offset = self.__calc_default_panel_line_bevel_offset(context)
+        self.inset_depth = self.panel_line_bevel_offset
         return self.execute(context)
 
     def cancel(self, context):
@@ -61,10 +65,10 @@ class SimplePanels(bpy.types.Operator):
         )
         
         perf_total_start = time.time()
-        self.perf_metric_cut_corners_s = 0;
-        self.perf_metric_walk_s = 0;
-        self.perf_metric_next_vert_pick_s = 0;
-        self.perf_metric_cut_lines_s = 0;
+        self.__perf_metric_cut_corners_s = 0;
+        self.__perf_metric_walk_s = 0;
+        self.__perf_metric_next_vert_pick_s = 0;
+        self.__perf_metric_cut_lines_s = 0;
         random.seed(self.seed)
         mesh = context.edit_object.data
         bm = bmesh.from_edit_mesh(mesh)
@@ -77,19 +81,19 @@ class SimplePanels(bpy.types.Operator):
         walker = edge_walker.EdgeWalker(bm)
         walker.start(start_edge, start_vert)
 
-        self.walk(walker)
+        self.__walk(walker)
 
         if self.bevel_panel_corners:
             perf_cut_corners_start = time.time()
-            self.cut_corners(bm, walker.traversed_edges)
-            self.perf_metric_cut_corners_s = time.time() - perf_cut_corners_start
+            self.__cut_corners(bm, walker.traversed_edges)
+            self.__perf_metric_cut_corners_s = time.time() - perf_cut_corners_start
 
         # TODO: for now just select the edges
         for e in walker.traversed_edges:
             e.select = True
         bm.select_flush_mode()
 
-        self.cut_lines()
+        self.__cut_lines()
 
         bmesh.update_edit_mesh(mesh)
 
@@ -100,17 +104,17 @@ class SimplePanels(bpy.types.Operator):
             (
                 len(walker.traversed_edges),
                 walker.first_open_vert() != None,
-                self.perf_metric_cut_corners_s / perf_total_s * 100,
-                self.perf_metric_walk_s / perf_total_s * 100,
-                self.perf_metric_cut_lines_s / perf_total_s * 100,
-                self.perf_metric_next_vert_pick_s / perf_total_s * 100
+                self.__perf_metric_cut_corners_s / perf_total_s * 100,
+                self.__perf_metric_walk_s / perf_total_s * 100,
+                self.__perf_metric_cut_lines_s / perf_total_s * 100,
+                self.__perf_metric_next_vert_pick_s / perf_total_s * 100
             )
         )
 
         # Lets Blender know the operator finished successfully.
         return {'FINISHED'}
 
-    def walk(self, walker):
+    def __walk(self, walker):
         while True:
             perf_walk_start = time.time()
             while walker.is_valid() and not walker.ends_at_traversed_vertex():
@@ -118,11 +122,11 @@ class SimplePanels(bpy.types.Operator):
                     walker.forward()
                 else:
                     walker.turn()
-            self.perf_metric_walk_s += time.time() - perf_walk_start
+            self.__perf_metric_walk_s += time.time() - perf_walk_start
             perf_next_vert_start = time.time()
             (next_iteration_vert, next_iteration_edge) = self.__next_vert_and_edge(walker)
             next_iteration_edge = walker.random_non_traversed_edge_from_vertex(next_iteration_vert)
-            self.perf_metric_next_vert_pick_s += time.time() - perf_next_vert_start
+            self.__perf_metric_next_vert_pick_s += time.time() - perf_next_vert_start
             if next_iteration_edge == None or next_iteration_vert == None:
                 if random.random() < 0.1:
                     return
@@ -168,7 +172,14 @@ class SimplePanels(bpy.types.Operator):
         return (None, None)
 
 
-    def cut_corners(self, bm, traversed_edges):
+    def __calc_default_panel_line_bevel_offset(self, context):
+        mesh = context.edit_object.data
+        bm = bmesh.from_edit_mesh(mesh)
+        # 5% of average edge length
+        return reduce(lambda a, b: a + b, map(lambda e: e.calc_length(), bm.edges)) / len(bm.edges) * 0.05
+
+
+    def __cut_corners(self, bm, traversed_edges):
         affected_verts = set()
         result = list()
         for face in bm.faces:
@@ -202,7 +213,7 @@ class SimplePanels(bpy.types.Operator):
                             #print("vert for cut:", vert)
         return result
 
-    def cut_lines(self):
+    def __cut_lines(self):
         perf_start_s = time.time()
         # TODO: if I continue to use these ops I need to clear selection before exec
         # TODO: maybe use bmesh.ops.bevel+inset_region?
@@ -211,19 +222,20 @@ class SimplePanels(bpy.types.Operator):
             offset=self.panel_line_bevel_offset,
             segments=1,
             profile=0.5,
-            clamp_overlap=True,
+            clamp_overlap=self.bevel_clamp_overlap,
             loop_slide=False,
             material=-1
         )
 
         # TODO: this currently extrudes the faces which have all edges selected,
-        # including those which are not a result of bevel operator
+        # including those which are not a result of bevel operator (but this is ok if edit mode is FACES)
         bpy.ops.mesh.inset(
             use_boundary=True,
             use_even_offset=True,
             use_relative_offset=False,
             use_edge_rail=False,
-            thickness=self.inset_thickness,
+            # TODO: instead of thickness it will be better to scale edges in panel insets
+            thickness=self.panel_line_bevel_offset*self.inset_thickness_factor,
             depth=-self.inset_depth,
             use_outset=False,
             use_select_inset=False,
@@ -231,7 +243,7 @@ class SimplePanels(bpy.types.Operator):
             use_interpolate=True,
             release_confirm=False
         )
-        self.perf_metric_cut_lines_s = time.time() - perf_start_s
+        self.__perf_metric_cut_lines_s = time.time() - perf_start_s
 
 
 # TODO: move away
