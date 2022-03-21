@@ -16,6 +16,7 @@ from . import (
 )
 import bmesh
 import random
+import time
 
 class SimplePanels(bpy.types.Operator):
     """Simple panel generator"""      # Use this as a tooltip for menu items and buttons.
@@ -58,6 +59,12 @@ class SimplePanels(bpy.types.Operator):
                 self.seed
             )
         )
+        
+        perf_total_start = time.time()
+        self.perf_metric_cut_corners_s = 0;
+        self.perf_metric_walk_s = 0;
+        self.perf_metric_next_vert_pick_s = 0;
+        self.perf_metric_cut_lines_s = 0;
         random.seed(self.seed)
         mesh = context.edit_object.data
         bm = bmesh.from_edit_mesh(mesh)
@@ -73,7 +80,9 @@ class SimplePanels(bpy.types.Operator):
         self.walk(walker)
 
         if self.bevel_panel_corners:
+            perf_cut_corners_start = time.time()
             self.cut_corners(bm, walker.traversed_edges)
+            self.perf_metric_cut_corners_s = time.time() - perf_cut_corners_start
 
         # TODO: for now just select the edges
         for e in walker.traversed_edges:
@@ -84,9 +93,18 @@ class SimplePanels(bpy.types.Operator):
 
         bmesh.update_edit_mesh(mesh)
 
+        perf_total_s = time.time() - perf_total_start
         self.report(
-            {'INFO'}, "Traversed edges: %d; has open vert: %s" %
-            (len(walker.traversed_edges), walker.first_open_vert() != None)
+            {'INFO'},
+            "Traversed edges: %d; has open vert: %s. perf_cut_corners=%d%%; perf_walk=%d%%; perf_cut=%d%%; perf_pick=%d%%" %
+            (
+                len(walker.traversed_edges),
+                walker.first_open_vert() != None,
+                self.perf_metric_cut_corners_s / perf_total_s * 100,
+                self.perf_metric_walk_s / perf_total_s * 100,
+                self.perf_metric_cut_lines_s / perf_total_s * 100,
+                self.perf_metric_next_vert_pick_s / perf_total_s * 100
+            )
         )
 
         # Lets Blender know the operator finished successfully.
@@ -94,13 +112,17 @@ class SimplePanels(bpy.types.Operator):
 
     def walk(self, walker):
         while True:
+            perf_walk_start = time.time()
             while walker.is_valid() and not walker.ends_at_traversed_vertex():
                 if random.random() < self.forward_chance:
                     walker.forward()
                 else:
                     walker.turn()
+            self.perf_metric_walk_s += time.time() - perf_walk_start
+            perf_next_vert_start = time.time()
             (next_iteration_vert, next_iteration_edge) = self.__next_vert_and_edge(walker)
             next_iteration_edge = walker.random_non_traversed_edge_from_vertex(next_iteration_vert)
+            self.perf_metric_next_vert_pick_s += time.time() - perf_next_vert_start
             if next_iteration_edge == None or next_iteration_vert == None:
                 if random.random() < 0.1:
                     return
@@ -181,6 +203,7 @@ class SimplePanels(bpy.types.Operator):
         return result
 
     def cut_lines(self):
+        perf_start_s = time.time()
         # TODO: if I continue to use these ops I need to clear selection before exec
         # TODO: maybe use bmesh.ops.bevel+inset_region?
         bpy.ops.mesh.bevel(
@@ -208,6 +231,7 @@ class SimplePanels(bpy.types.Operator):
             use_interpolate=True,
             release_confirm=False
         )
+        self.perf_metric_cut_lines_s = time.time() - perf_start_s
 
 
 # TODO: move away
@@ -231,6 +255,7 @@ def register():
 
 def unregister():
     bpy.utils.unregister_class(SimplePanels)
+    bpy.types.VIEW3D_MT_edit_mesh.remove(menu_func)
 
 
 # This allows you to run the script directly from Blender's Text editor
